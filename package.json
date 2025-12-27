@@ -1,0 +1,19 @@
+{
+  "name": "matching-game",
+  "version": "1.0.0",
+  "description": "Nintendo风格的手势控制单词连连看游戏",
+  "main": "index.html",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "dev": "python3 -m http.server 8000"
+  },
+  "keywords": [
+    "matching-game",
+    "mediapipe",
+    "hand-tracking",
+    "education",
+    "nintendo"
+  ],
+  "author": "",
+  "license": "MIT"
+}

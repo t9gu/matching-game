@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎮 单词连连看 - Nintendo风格</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', 'Arial', sans-serif;
+            overflow: hidden;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.1), transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.1), transparent 50%);
+            animation: bgFloat 10s ease-in-out infinite;
+            z-index: 0;
+        }
+
+        @keyframes bgFloat {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.6; }
+        }
+
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        #videoContainer {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 320px;
+            height: 240px;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            border: 4px solid #fff;
+            z-index: 100;
+        }
+
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        #handCanvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        #startScreen, #gameScreen, #resultScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .title {
+            font-size: 72px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 
+                0 0 20px rgba(255, 255, 255, 0.8),
+                0 0 40px rgba(255, 255, 255, 0.6),
+                4px 4px 0 #ff6b9d,
+                8px 8px 0 #c44569;
+            margin-bottom: 50px;
+            animation: titleBounce 2s ease-in-out infinite;
+        }
+
+        @keyframes titleBounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+
+        .button {
+            padding: 20px 60px;
+            font-size: 32px;
+            font-weight: bold;
+            color: #fff;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 
+                0 10px 30px rgba(245, 87, 108, 0.4),
+                inset 0 -5px 0 rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+            margin: 10px;
+        }
+
+        .button:hover {
+            transform: translateY(-5px) scale(1.05);
+            box-shadow: 
+                0 15px 40px rgba(245, 87, 108, 0.6),
+                inset 0 -5px 0 rgba(0, 0, 0, 0.2);
+        }
+
+        .button:active {
+            transform: translateY(-2px) scale(1.02);
+        }
+
+        #gameBoard {
+            display: grid;
+            grid-template-columns: repeat(4, 150px);
+            grid-template-rows: repeat(4, 150px);
+            gap: 15px;
+            margin: 20px auto;
+        }
+
+        .card {
+            width: 150px;
+            height: 150px;
+            background: linear-gradient(135deg, #ffffff 0%, #f0f0f0 100%);
+            border-radius: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 
+                0 8px 20px rgba(0, 0, 0, 0.2),
+                inset 0 -4px 0 rgba(0, 0, 0, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.5), transparent);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card.selected {
+            background: linear-gradient(135deg, #ffeaa7 0%, #fdcb6e 100%);
+            transform: scale(1.1);
+            box-shadow: 
+                0 0 30px rgba(253, 203, 110, 0.8),
+                0 12px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .card.matched {
+            animation: matchAnimation 0.6s ease forwards;
+        }
+
+        @keyframes matchAnimation {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3) rotate(10deg); opacity: 0.8; }
+            100% { transform: scale(0); opacity: 0; }
+        }
+
+        .card-emoji {
+            font-size: 64px;
+            margin-bottom: 5px;
+        }
+
+        .card-text {
+            font-size: 18px;
+            color: #666;
+        }
+
+        #scoreBoard {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            z-index: 100;
+        }
+
+        .score-item {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin: 10px 0;
+        }
+
+        .score-label {
+            color: #666;
+            font-size: 18px;
+            margin-right: 10px;
+        }
+
+        #timer {
+            font-size: 36px;
+            color: #f5576c;
+        }
+
+        #celebration {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 120px;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 200;
+            animation: celebrate 1s ease-out;
+        }
+
+        @keyframes celebrate {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0); }
+            50% { opacity: 1; transform: translate(-50%, -50%) scale(1.5); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+        }
+
+        .result-content {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 60px;
+            border-radius: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        .result-title {
+            font-size: 48px;
+            font-weight: bold;
+            color: #f5576c;
+            margin-bottom: 30px;
+        }
+
+        .result-stats {
+            font-size: 32px;
+            color: #333;
+            margin: 20px 0;
+        }
+
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            color: #fff;
+            text-align: center;
+            z-index: 1000;
+        }
+
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 6px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #handStatus {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: #0ff;
+            padding: 15px 30px;
+            border-radius: 30px;
+            font-size: 20px;
+            font-weight: bold;
+            z-index: 100;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <!-- 视频容器 -->
+        <div id="videoContainer">
+            <video id="video" autoplay playsinline></video>
+        </div>
+
+        <!-- 手部追踪Canvas -->
+        <canvas id="handCanvas"></canvas>
+
+        <!-- 开始界面 -->
+        <div id="startScreen">
+            <div class="title">🎮 单词连连看</div>
+            <button class="button" onclick="game.startGame()">🚀 开始游戏</button>
+        </div>
+
+        <!-- 游戏界面 -->
+        <div id="gameScreen" class="hidden">
+            <div id="scoreBoard">
+                <div class="score-item">
+                    <span class="score-label">⏱️ 时间:</span>
+                    <span id="timer">00:00</span>
+                </div>
+                <div class="score-item">
+                    <span class="score-label">✅ 已配对:</span>
+                    <span id="matched">0</span> / 8
+                </div>
+                <div class="score-item">
+                    <span class="score-label">🎯 连击:</span>
+                    <span id="combo">0</span>
+                </div>
+            </div>
+
+            <div id="gameBoard"></div>
+        </div>
+
+        <!-- 结算界面 -->
+        <div id="resultScreen" class="hidden">
+            <div class="result-content">
+                <div class="result-title">🎉 游戏完成！</div>
+                <div class="result-stats">⏱️ 用时: <span id="finalTime">00:00</span></div>
+                <div class="result-stats">✅ 配对数: <span id="finalMatched">0</span></div>
+                <div class="result-stats">🎯 最高连击: <span id="finalCombo">0</span></div>
+                <button class="button" onclick="game.restartGame()">🔄 再玩一次</button>
+                <button class="button" onclick="game.backToStart()">🏠 返回主页</button>
+            </div>
+        </div>
+
+        <!-- 庆祝动画 -->
+        <div id="celebration"></div>
+
+        <!-- 手势状态 -->
+        <div id="handStatus">👆 请用食指指向卡片进行连线</div>
+
+        <!-- 加载提示 -->
+        <div id="loading">
+            <div class="spinner"></div>
+            <div>正在加载摄像头和手势识别...</div>
+        </div>
+    </div>
+
+    <!-- 引入库 -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
