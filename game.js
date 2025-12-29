@@ -1502,34 +1502,15 @@ class MatchingGame {
     // ============================================
     exitGame() {
         // 显示确认对话框
-        if (confirm('确定要退出游戏吗？这将关闭摄像头并清理所有资源。')) {
+        if (confirm('确定要退出游戏吗？这将关闭摄像头。')) {
             // 停止所有音乐
             this.stopBackgroundMusic();
             
             // 停止无操作检测
             this.stopInactivityCheck();
             
-            // 停止摄像头和MediaPipe
-            if (this.camera) {
-                this.camera.stop();
-                this.camera = null;
-            }
-            
-            if (this.hands) {
-                this.hands.close();
-                this.hands = null;
-            }
-            
-            if (this.videoStream) {
-                this.videoStream.getTracks().forEach(track => {
-                    track.stop();
-                });
-                this.videoStream = null;
-            }
-            
-            if (this.video) {
-                this.video.srcObject = null;
-            }
+            // 使用stopCamera方法，保持MediaPipe实例以便重新开始
+            this.stopCamera();
             
             // 清理定时器
             if (this.timerInterval) {
@@ -1540,10 +1521,7 @@ class MatchingGame {
             // 显示退出消息
             alert('游戏已退出。感谢游玩！🎮');
             
-            // 可选：关闭窗口（需要用户权限）
-            // window.close();
-            
-            console.log('游戏已完全退出，所有资源已清理');
+            console.log('游戏已退出，摄像头已关闭');
         }
     }
 
