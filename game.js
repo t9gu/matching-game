@@ -34,6 +34,11 @@ class MatchingGame {
         this.useCustomMusic = false;
         
         this.isCheckingMatch = false;
+        this.isReshuffling = false;
+        
+        this.lastActionTime = null;
+        this.inactivityCheckInterval = null;
+        this.videoStream = null;
         
         this.init();
     }
@@ -46,6 +51,7 @@ class MatchingGame {
         this.initMediaPipe();
         this.setupCanvas();
         this.setupMusicUpload();
+        this.setupHintDialog();
     }
 
     // ============================================
@@ -264,6 +270,28 @@ class MatchingGame {
     }
 
     // ============================================
+    // 设置提示对话框
+    // ============================================
+    setupHintDialog() {
+        const yesBtn = document.getElementById('hintYesBtn');
+        const noBtn = document.getElementById('hintNoBtn');
+        
+        if (yesBtn && noBtn) {
+            yesBtn.addEventListener('click', () => {
+                this.showHint();
+                this.hideHintDialog();
+            });
+            
+            noBtn.addEventListener('click', () => {
+                this.hideHintDialog();
+                this.resetInactivityTimer();
+            });
+        } else {
+            console.warn('提示对话框按钮未找到，将在DOM加载后重试');
+        }
+    }
+
+    // ============================================
     // 初始化MediaPipe
     // ============================================
     initMediaPipe() {
@@ -271,30 +299,90 @@ class MatchingGame {
         
         this.hands = new Hands({
             locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`;
             }
         });
         
         this.hands.setOptions({
             maxNumHands: 1,
             modelComplexity: 1,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
         });
         
         this.hands.onResults((results) => this.onHandsResults(results));
         
         this.camera = new Camera(this.video, {
             onFrame: async () => {
-                await this.hands.send({ image: this.video });
+                if (this.hands) {
+                    await this.hands.send({ image: this.video });
+                }
             },
             width: 1280,
             height: 720
         });
         
-        this.camera.start().then(() => {
-            document.getElementById('loading').style.display = 'none';
-        });
+        this.camera.start()
+            .then(() => {
+                console.log('摄像头启动成功');
+                // 保存视频流引用
+                return navigator.mediaDevices.getUserMedia({ video: true });
+            })
+            .then(stream => {
+                this.videoStream = stream;
+                // 摄像头启动成功，隐藏加载提示
+                this.hideLoading();
+                console.log('MediaPipe初始化完成');
+            })
+            .catch(err => {
+                console.error('MediaPipe初始化失败:', err);
+                this.hideLoading();
+                this.showCameraError(err);
+            });
+    }
+
+    // ============================================
+    // 隐藏加载提示
+    // ============================================
+    hideLoading() {
+        const loading = document.getElementById('loading');
+        if (loading) {
+            loading.style.display = 'none';
+        }
+    }
+
+    // ============================================
+    // 显示摄像头错误提示
+    // ============================================
+    showCameraError(err) {
+        const loading = document.getElementById('loading');
+        if (loading) {
+            let errorMessage = '❌ 摄像头启动失败\n\n';
+            
+            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                errorMessage += '📷 请检查摄像头权限设置：\n\n';
+                errorMessage += '1. 点击浏览器地址栏左侧的锁图标\n';
+                errorMessage += '2. 找到"摄像头"权限设置\n';
+                errorMessage += '3. 选择"允许"\n';
+                errorMessage += '4. 刷新页面重试\n\n';
+                errorMessage += '💡 提示：您可能需要在系统设置中允许浏览器访问摄像头';
+            } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+                errorMessage += '📷 未检测到摄像头设备\n\n';
+                errorMessage += '请确保：\n';
+                errorMessage += '1. 摄像头已正确连接\n';
+                errorMessage += '2. 摄像头驱动已安装\n';
+                errorMessage += '3. 没有其他应用占用摄像头';
+            } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+                errorMessage += '📷 摄像头被其他应用占用\n\n';
+                errorMessage += '请关闭其他正在使用摄像头的应用';
+            } else {
+                errorMessage += '📷 发生未知错误\n\n';
+                errorMessage += '错误信息：' + err.message;
+            }
+            
+            loading.innerHTML = `<div style="color: #f5576c; font-size: 18px; white-space: pre-line; text-align: center; padding: 40px;">${errorMessage}</div>`;
+            loading.style.display = 'flex';
+        }
     }
 
     // ============================================
@@ -318,9 +406,10 @@ class MatchingGame {
             this.isPointing = indexExtended && middleFolded;
             
             if (this.isPointing) {
+                // 直接使用1:1映射，不做任何转换
                 this.fingerTip = {
-                    x: (1 - indexFingerTip.x) * this.handCanvas.width,
-                    y: indexFingerTip.y * this.handCanvas.height
+                    x: (1 - indexFingerTip.x) * window.innerWidth,
+                    y: indexFingerTip.y * window.innerHeight
                 };
                 
                 this.drawPointer(this.fingerTip.x, this.fingerTip.y);
@@ -430,15 +519,25 @@ class MatchingGame {
     // ============================================
     checkCardHover() {
         if (!this.fingerTip) return;
+        if (this.isReshuffling) return;
         
         const cards = document.querySelectorAll('.card:not(.matched)');
         cards.forEach(card => {
             const rect = card.getBoundingClientRect();
             
-            if (this.fingerTip.x >= rect.left && 
-                this.fingerTip.x <= rect.right &&
-                this.fingerTip.y >= rect.top && 
-                this.fingerTip.y <= rect.bottom) {
+            // 扩大识别区域50像素
+            const expandMargin = 50;
+            const expandedRect = {
+                left: rect.left - expandMargin,
+                right: rect.right + expandMargin,
+                top: rect.top - expandMargin,
+                bottom: rect.bottom + expandMargin
+            };
+            
+            if (this.fingerTip.x >= expandedRect.left && 
+                this.fingerTip.x <= expandedRect.right &&
+                this.fingerTip.y >= expandedRect.top && 
+                this.fingerTip.y <= expandedRect.bottom) {
                 
                 if (!card.classList.contains('selected')) {
                     this.selectCard(card);
@@ -454,8 +553,9 @@ class MatchingGame {
         const cardIndex = parseInt(cardElement.dataset.index);
         const card = this.cards[cardIndex];
         
-        // 如果正在检查配对，不允许选择新卡片
+        // 如果正在检查配对或打乱卡片，不允许选择新卡片
         if (this.isCheckingMatch) return;
+        if (this.isReshuffling) return;
         if (this.selectedCards.length >= 2) return;
         if (this.selectedCards.some(c => c.index === cardIndex)) return;
         
@@ -463,6 +563,9 @@ class MatchingGame {
         this.selectedCards.push({ element: cardElement, data: card, index: cardIndex });
         
         this.playSound(440, 0.1, 'success');
+        
+        // 重置无操作计时器
+        this.resetInactivityTimer();
         
         if (this.selectedCards.length === 2) {
             this.isCheckingMatch = true;
@@ -500,6 +603,10 @@ class MatchingGame {
             setTimeout(() => {
                 card1.element.style.display = 'none';
                 card2.element.style.display = 'none';
+                
+                // 清除手指追踪状态，防止干扰重新打乱
+                this.fingerTip = null;
+                this.lastFingerTip = null;
                 
                 // 检查剩余卡片是否可配对
                 setTimeout(() => {
@@ -540,6 +647,9 @@ class MatchingGame {
     // 检查并重新打乱卡片（如果无法配对）
     // ============================================
     checkAndReshuffleIfNeeded() {
+        const gameBoard = document.getElementById('gameBoard');
+        const cardElements = Array.from(gameBoard.children).filter(el => el.style.display !== 'none');
+        
         const remainingCards = this.cards.filter((card, index) => {
             const cardElement = document.querySelector(`.card[data-index="${index}"]`);
             return cardElement && cardElement.style.display !== 'none';
@@ -547,13 +657,63 @@ class MatchingGame {
         
         if (remainingCards.length === 0) return;
         
+        // 输出剩余卡片的详细信息
+        console.log('=== 检查剩余卡片 ===');
+        console.log(`剩余卡片数量: ${remainingCards.length}`);
+        const remainingInfo = cardElements.map((el, i) => {
+            const index = parseInt(el.dataset.index);
+            const card = this.cards[index];
+            return `位置${index}(${card.type}:${card.word})`;
+        }).join(', ');
+        console.log(`剩余卡片布局: ${remainingInfo}`);
+        
+        // 首先检查剩余卡片是否可以配对（每个单词都有对应的图片）
+        if (!this.canRemainingCardsPair(remainingCards)) {
+            console.error('严重错误：剩余卡片无法配对！单词和图片不匹配');
+            console.log('剩余卡片：', remainingCards.map(c => `${c.type}:${c.word}`));
+            alert('游戏出现错误：剩余卡片无法配对。请刷新页面重新开始。');
+            return;
+        }
+        
         // 检查是否存在可配对的相邻卡片
         const hasValidMatch = this.checkForValidMatches(remainingCards);
         
         if (!hasValidMatch) {
+            console.log('没有找到可配对的相邻卡片，需要重新打乱');
             // 没有可配对的相邻卡片，需要重新打乱
             this.reshuffleRemainingCards();
+        } else {
+            console.log('找到可配对的相邻卡片，游戏继续');
         }
+    }
+
+    // ============================================
+    // 检查剩余卡片是否可以配对
+    // ============================================
+    canRemainingCardsPair(remainingCards) {
+        // 统计每个单词的word和image数量
+        const wordCount = {};
+        
+        remainingCards.forEach(card => {
+            if (!wordCount[card.word]) {
+                wordCount[card.word] = { word: 0, image: 0 };
+            }
+            if (card.type === 'word') {
+                wordCount[card.word].word++;
+            } else {
+                wordCount[card.word].image++;
+            }
+        });
+        
+        // 检查每个单词是否都有对应的图片
+        for (const word in wordCount) {
+            if (wordCount[word].word !== wordCount[word].image) {
+                console.error(`单词"${word}"的word和image数量不匹配: word=${wordCount[word].word}, image=${wordCount[word].image}`);
+                return false;
+            }
+        }
+        
+        return true;
     }
 
     // ============================================
@@ -563,12 +723,16 @@ class MatchingGame {
         const gameBoard = document.getElementById('gameBoard');
         const cardElements = Array.from(gameBoard.children).filter(el => el.style.display !== 'none');
         
+        console.log('检查可配对的相邻卡片...');
+        console.log(`剩余卡片数量: ${cardElements.length}`);
+        
+        // 使用剩余卡片在Grid中的实际显示位置来判断相邻关系
         for (let i = 0; i < cardElements.length; i++) {
             const card1Index = parseInt(cardElements[i].dataset.index);
             const card1 = this.cards[card1Index];
             
-            // 检查相邻的卡片（上下左右）
-            const neighbors = this.getNeighborIndices(i, cardElements.length);
+            // 获取在Grid中的相邻位置（基于剩余卡片的实际显示位置）
+            const neighbors = this.getNeighborIndicesInGrid(i, cardElements.length);
             
             for (const neighborPos of neighbors) {
                 if (neighborPos < cardElements.length) {
@@ -578,13 +742,36 @@ class MatchingGame {
                     // 检查是否可以配对
                     if ((card1.type === 'word' && card2.type === 'image' && card1.word === card2.word) ||
                         (card1.type === 'image' && card2.type === 'word' && card1.word === card2.word)) {
+                        console.log(`找到可配对的相邻卡片: Grid位置${i}[原始${card1Index}](${card1.type}:${card1.word}) 和 Grid位置${neighborPos}[原始${card2Index}](${card2.type}:${card2.word})`);
                         return true;
                     }
                 }
             }
         }
         
+        console.log('没有找到可配对的相邻卡片');
         return false;
+    }
+
+    // ============================================
+    // 获取在Grid中的相邻位置索引
+    // ============================================
+    getNeighborIndicesInGrid(position, totalCards) {
+        const gridSize = 4;
+        const row = Math.floor(position / gridSize);
+        const col = position % gridSize;
+        const neighbors = [];
+        
+        // 上
+        if (row > 0) neighbors.push(position - gridSize);
+        // 下
+        if (row < gridSize - 1 && position + gridSize < totalCards) neighbors.push(position + gridSize);
+        // 左
+        if (col > 0) neighbors.push(position - 1);
+        // 右
+        if (col < gridSize - 1 && position + 1 < totalCards) neighbors.push(position + 1);
+        
+        return neighbors;
     }
 
     // ============================================
@@ -612,6 +799,21 @@ class MatchingGame {
     // 重新打乱剩余卡片
     // ============================================
     reshuffleRemainingCards() {
+        // 设置打乱锁
+        this.isReshuffling = true;
+        
+        // 清除所有选中状态
+        this.selectedCards.forEach(selected => {
+            if (selected && selected.element) {
+                selected.element.classList.remove('selected');
+            }
+        });
+        this.selectedCards = [];
+        
+        // 清除手指追踪，防止打乱后立即选中
+        this.fingerTip = null;
+        this.lastFingerTip = null;
+        
         const gameBoard = document.getElementById('gameBoard');
         const cardElements = Array.from(gameBoard.children).filter(el => el.style.display !== 'none');
         
@@ -688,26 +890,39 @@ class MatchingGame {
         // 显示提示
         this.showCelebration('🔄');
         this.playSound(330, 0.2, 'success');
+        
+        console.log(`重新打乱完成，尝试次数: ${attempts}, 找到可配对布局: ${hasValidLayout}`);
+        
+        // 打乱动画结束后解锁，留出额外时间防止立即选中
+        setTimeout(() => {
+            this.isReshuffling = false;
+            // 再次清除手指追踪，确保不会立即选中
+            this.fingerTip = null;
+            this.lastFingerTip = null;
+        }, 1000);
     }
 
     // ============================================
     // 检查剩余卡片布局是否可配对
     // ============================================
     checkRemainingCardsLayout(cardElements, tempCards) {
+        // 使用Grid中的实际显示位置来判断相邻关系
         for (let i = 0; i < cardElements.length; i++) {
             const card1Index = parseInt(cardElements[i].dataset.index);
             const card1 = tempCards[card1Index];
             
-            // 计算在剩余卡片中的相邻位置
-            const neighbors = this.getNeighborIndicesInRemaining(i, cardElements);
+            // 获取在Grid中的相邻位置（基于剩余卡片的实际显示位置）
+            const neighbors = this.getNeighborIndicesInGrid(i, cardElements.length);
             
             for (const neighborPos of neighbors) {
-                const card2Index = parseInt(cardElements[neighborPos].dataset.index);
-                const card2 = tempCards[card2Index];
-                
-                if ((card1.type === 'word' && card2.type === 'image' && card1.word === card2.word) ||
-                    (card1.type === 'image' && card2.type === 'word' && card1.word === card2.word)) {
-                    return true;
+                if (neighborPos < cardElements.length) {
+                    const card2Index = parseInt(cardElements[neighborPos].dataset.index);
+                    const card2 = tempCards[card2Index];
+                    
+                    if ((card1.type === 'word' && card2.type === 'image' && card1.word === card2.word) ||
+                        (card1.type === 'image' && card2.type === 'word' && card1.word === card2.word)) {
+                        return true;
+                    }
                 }
             }
         }
@@ -979,20 +1194,40 @@ class MatchingGame {
             });
         });
         
+        // 先打乱一次
+        this.cards = this.shuffleArray(this.cards);
+        
+        // 输出初始卡片信息用于调试
+        console.log('初始卡片列表：', this.cards.map((c, i) => `${i}:${c.type}:${c.word}`).join(', '));
+        
         // 循环打乱直到找到可配对的初始布局
         let hasValidLayout = false;
         let attempts = 0;
         const maxAttempts = 100;
         
         while (!hasValidLayout && attempts < maxAttempts) {
-            this.cards = this.shuffleArray(this.cards);
             hasValidLayout = this.checkInitialLayout();
-            attempts++;
+            if (!hasValidLayout) {
+                this.cards = this.shuffleArray(this.cards);
+                attempts++;
+            } else {
+                break;
+            }
         }
+        
+        console.log(`初始布局尝试次数: ${attempts}, 是否找到可配对布局: ${hasValidLayout}`);
         
         // 如果100次尝试后仍无法找到可配对布局，强制创建一个
         if (!hasValidLayout) {
+            console.log('强制创建保证可配对的布局...');
             this.createGuaranteedLayout();
+            // 验证强制创建的布局
+            const verified = this.checkInitialLayout();
+            console.log(`强制布局验证结果: ${verified}`);
+            if (!verified) {
+                console.error('严重错误：强制创建的布局仍然无法配对！');
+                console.log('最终卡片列表：', this.cards.map((c, i) => `${i}:${c.type}:${c.word}`).join(', '));
+            }
         }
         
         const gameBoard = document.getElementById('gameBoard');
@@ -1032,6 +1267,8 @@ class MatchingGame {
     // 检查初始布局是否可配对
     // ============================================
     checkInitialLayout() {
+        let foundPairs = [];
+        
         for (let i = 0; i < this.cards.length; i++) {
             const card1 = this.cards[i];
             const neighbors = this.getNeighborIndicesForPosition(i);
@@ -1041,12 +1278,18 @@ class MatchingGame {
                 
                 if ((card1.type === 'word' && card2.type === 'image' && card1.word === card2.word) ||
                     (card1.type === 'image' && card2.type === 'word' && card1.word === card2.word)) {
-                    return true;
+                    foundPairs.push(`位置${i}(${card1.type}:${card1.word}) 和 位置${neighborIdx}(${card2.type}:${card2.word})`);
                 }
             }
         }
         
-        return false;
+        if (foundPairs.length > 0) {
+            console.log(`找到${foundPairs.length}对可配对的相邻卡片:`, foundPairs.join('; '));
+            return true;
+        } else {
+            console.warn('警告：当前布局没有可配对的相邻卡片！');
+            return false;
+        }
     }
 
     // ============================================
@@ -1074,27 +1317,60 @@ class MatchingGame {
     // 创建保证可配对的布局
     // ============================================
     createGuaranteedLayout() {
-        // 找到第一对可配对的卡片
+        // 找到第一对可配对的卡片（一个单词和一个图片）
+        let wordCard = null;
+        let imageCard = null;
+        let wordIndex = -1;
+        let imageIndex = -1;
+        
         for (let i = 0; i < this.cards.length; i++) {
-            if (this.cards[i].type === 'word') {
-                const word = this.cards[i].word;
+            if (this.cards[i].type === 'word' && !wordCard) {
+                wordCard = this.cards[i];
+                wordIndex = i;
+                const word = wordCard.word;
                 
                 // 找到对应的图片
                 for (let j = 0; j < this.cards.length; j++) {
-                    if (i !== j && this.cards[j].type === 'image' && this.cards[j].word === word) {
-                        // 将这对卡片放在相邻位置（0和1）
-                        const temp = this.cards[0];
-                        this.cards[0] = this.cards[i];
-                        this.cards[i] = temp;
-                        
-                        const temp2 = this.cards[1];
-                        this.cards[1] = this.cards[j];
-                        this.cards[j] = temp2;
-                        
-                        return;
+                    if (this.cards[j].type === 'image' && this.cards[j].word === word) {
+                        imageCard = this.cards[j];
+                        imageIndex = j;
+                        break;
                     }
                 }
+                
+                if (imageCard) break;
             }
+        }
+        
+        if (wordCard && imageCard) {
+            console.log(`强制布局：将 ${wordCard.word}(word) 和 ${imageCard.word}(image) 放在位置0和1`);
+            console.log(`交换前 - 位置0: ${this.cards[0].type}:${this.cards[0].word}, 位置1: ${this.cards[1].type}:${this.cards[1].word}`);
+            console.log(`wordIndex: ${wordIndex}, imageIndex: ${imageIndex}`);
+            
+            // 创建新数组来避免引用问题
+            const newCards = [...this.cards];
+            
+            // 将单词卡片放在位置0
+            newCards[0] = { ...wordCard };
+            newCards[wordIndex] = { ...this.cards[0] };
+            
+            // 更新imageIndex（如果它指向位置0）
+            let actualImageIndex = imageIndex;
+            if (imageIndex === 0) {
+                actualImageIndex = wordIndex;
+            }
+            
+            // 将图片卡片放在位置1（水平相邻）
+            const cardAt1 = newCards[1];
+            newCards[1] = { ...imageCard };
+            newCards[actualImageIndex] = { ...cardAt1 };
+            
+            this.cards = newCards;
+            
+            console.log(`交换后 - 位置0: ${this.cards[0].type}:${this.cards[0].word}, 位置1: ${this.cards[1].type}:${this.cards[1].word}`);
+            console.log('强制布局完成：位置0和位置1现在是可配对的相邻卡片');
+        } else {
+            console.error('错误：无法找到可配对的单词和图片卡片！');
         }
     }
 
@@ -1123,10 +1399,33 @@ class MatchingGame {
         document.getElementById('startScreen').classList.add('hidden');
         document.getElementById('gameScreen').classList.remove('hidden');
         document.getElementById('resultScreen').classList.add('hidden');
+        document.getElementById('backToHomeBtn').style.display = 'block';
+        
+        // 如果摄像头已停止，重新启动（但不重新初始化MediaPipe）
+        if (this.camera && !this.videoStream) {
+            console.log('重新启动摄像头...');
+            this.camera.start()
+                .then(() => {
+                    console.log('摄像头重新启动成功');
+                    return navigator.mediaDevices.getUserMedia({ video: true });
+                })
+                .then(stream => {
+                    this.videoStream = stream;
+                    console.log('视频流已恢复');
+                })
+                .catch(err => {
+                    console.error('摄像头重启失败:', err);
+                });
+        } else if (!this.camera || !this.hands) {
+            // 只在首次启动时初始化MediaPipe
+            console.log('首次启动，初始化MediaPipe...');
+            this.initMediaPipe();
+        }
         
         this.createCards();
         this.startTimer();
         this.playBackgroundMusic();
+        this.startInactivityCheck();
         
         document.getElementById('matched').textContent = '0';
         document.getElementById('combo').textContent = '0';
@@ -1155,6 +1454,8 @@ class MatchingGame {
         this.gameState = 'result';
         clearInterval(this.timerInterval);
         this.stopBackgroundMusic();
+        this.stopInactivityCheck();
+        document.getElementById('backToHomeBtn').style.display = 'none';
         
         const elapsed = Date.now() - this.startTime;
         const minutes = Math.floor(elapsed / 60000);
@@ -1187,14 +1488,226 @@ class MatchingGame {
     backToStart() {
         this.gameState = 'start';
         this.stopBackgroundMusic();
+        this.stopInactivityCheck();
+        this.stopCamera();
+        document.getElementById('backToHomeBtn').style.display = 'none';
         
         document.getElementById('startScreen').classList.remove('hidden');
         document.getElementById('gameScreen').classList.add('hidden');
         document.getElementById('resultScreen').classList.add('hidden');
+    }
+
+    // ============================================
+    // 退出游戏
+    // ============================================
+    exitGame() {
+        // 显示确认对话框
+        if (confirm('确定要退出游戏吗？这将关闭摄像头并清理所有资源。')) {
+            // 停止所有音乐
+            this.stopBackgroundMusic();
+            
+            // 停止无操作检测
+            this.stopInactivityCheck();
+            
+            // 停止摄像头和MediaPipe
+            if (this.camera) {
+                this.camera.stop();
+                this.camera = null;
+            }
+            
+            if (this.hands) {
+                this.hands.close();
+                this.hands = null;
+            }
+            
+            if (this.videoStream) {
+                this.videoStream.getTracks().forEach(track => {
+                    track.stop();
+                });
+                this.videoStream = null;
+            }
+            
+            if (this.video) {
+                this.video.srcObject = null;
+            }
+            
+            // 清理定时器
+            if (this.timerInterval) {
+                clearInterval(this.timerInterval);
+                this.timerInterval = null;
+            }
+            
+            // 显示退出消息
+            alert('游戏已退出。感谢游玩！🎮');
+            
+            // 可选：关闭窗口（需要用户权限）
+            // window.close();
+            
+            console.log('游戏已完全退出，所有资源已清理');
+        }
+    }
+
+    // ============================================
+    // 从游戏界面返回主页
+    // ============================================
+    backToStartFromGame() {
+        this.stopBackgroundMusic();
+        this.stopInactivityCheck();
+        this.stopCamera();
+        this.gameState = 'start';
+        document.getElementById('backToHomeBtn').style.display = 'none';
+        
+        document.getElementById('startScreen').classList.remove('hidden');
+        document.getElementById('gameScreen').classList.add('hidden');
+        document.getElementById('resultScreen').classList.add('hidden');
+    }
+
+    // ============================================
+    // 停止摄像头（但保持MediaPipe实例运行）
+    // ============================================
+    stopCamera() {
+        if (this.camera) {
+            this.camera.stop();
+            // 不清空camera引用，保持实例
+        }
+        
+        // 不关闭hands实例，保持MediaPipe运行
+        
+        if (this.videoStream) {
+            this.videoStream.getTracks().forEach(track => {
+                track.stop();
+            });
+            this.videoStream = null;
+        }
+        
+        if (this.video) {
+            this.video.srcObject = null;
+        }
+        
+        console.log('摄像头已停止（MediaPipe保持运行）');
+    }
+
+    // ============================================
+    // 开始无操作检测
+    // ============================================
+    startInactivityCheck() {
+        this.lastActionTime = Date.now();
+        
+        if (this.inactivityCheckInterval) {
+            clearInterval(this.inactivityCheckInterval);
+        }
+        
+        this.inactivityCheckInterval = setInterval(() => {
+            const now = Date.now();
+            const inactiveTime = now - this.lastActionTime;
+            
+            // 1分钟 = 60000毫秒
+            if (inactiveTime >= 60000 && this.gameState === 'playing') {
+                this.showHintDialog();
+                this.stopInactivityCheck();
+            }
+        }, 5000); // 每5秒检查一次
+    }
+
+    // ============================================
+    // 停止无操作检测
+    // ============================================
+    stopInactivityCheck() {
+        if (this.inactivityCheckInterval) {
+            clearInterval(this.inactivityCheckInterval);
+            this.inactivityCheckInterval = null;
+        }
+    }
+
+    // ============================================
+    // 重置无操作计时器
+    // ============================================
+    resetInactivityTimer() {
+        this.lastActionTime = Date.now();
+    }
+
+    // ============================================
+    // 显示提示对话框
+    // ============================================
+    showHintDialog() {
+        document.getElementById('hintDialog').style.display = 'block';
+    }
+
+    // ============================================
+    // 隐藏提示对话框
+    // ============================================
+    hideHintDialog() {
+        document.getElementById('hintDialog').style.display = 'none';
+    }
+
+    // ============================================
+    // 显示提示（高亮可配对的卡片）
+    // ============================================
+    showHint() {
+        const gameBoard = document.getElementById('gameBoard');
+        const cardElements = Array.from(gameBoard.children).filter(el => 
+            el.style.display !== 'none' && !el.classList.contains('matched')
+        );
+        
+        console.log(`提示功能：查找可配对的卡片，剩余卡片数量: ${cardElements.length}`);
+        
+        // 使用Grid中的实际显示位置来判断相邻关系
+        for (let i = 0; i < cardElements.length; i++) {
+            const card1Index = parseInt(cardElements[i].dataset.index);
+            const card1 = this.cards[card1Index];
+            
+            if (!card1) {
+                console.warn(`提示功能：卡片${i}的数据为空`);
+                continue;
+            }
+            
+            // 获取在Grid中的相邻位置（基于剩余卡片的实际显示位置）
+            const neighbors = this.getNeighborIndicesInGrid(i, cardElements.length);
+            
+            for (const neighborPos of neighbors) {
+                if (neighborPos < cardElements.length) {
+                    const card2Index = parseInt(cardElements[neighborPos].dataset.index);
+                    const card2 = this.cards[card2Index];
+                    
+                    if (!card2) {
+                        console.warn(`提示功能：相邻卡片${neighborPos}的数据为空`);
+                        continue;
+                    }
+                    
+                    if ((card1.type === 'word' && card2.type === 'image' && card1.word === card2.word) ||
+                        (card1.type === 'image' && card2.type === 'word' && card1.word === card2.word)) {
+                        // 找到可配对的卡片，添加提示动画
+                        console.log(`提示功能：找到可配对的卡片 - Grid位置${i}[原始${card1Index}](${card1.type}:${card1.word}) 和 Grid位置${neighborPos}[原始${card2Index}](${card2.type}:${card2.word})`);
+                        
+                        cardElements[i].classList.add('hint-card');
+                        cardElements[neighborPos].classList.add('hint-card');
+                        
+                        // 3秒后移除提示
+                        setTimeout(() => {
+                            cardElements[i].classList.remove('hint-card');
+                            cardElements[neighborPos].classList.remove('hint-card');
+                        }, 3000);
+                        
+                        return;
+                    }
+                }
+            }
+        }
+        
+        console.warn('提示功能：未找到可配对的相邻卡片');
     }
 }
 
 // ============================================
 // 创建游戏实例
 // ============================================
-const game = new MatchingGame();
+let game;
+
+// 等待DOM加载完成后再创建游戏实例
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        game = new MatchingGame();
+    });
+} else {
+    game = new MatchingGame();
+}

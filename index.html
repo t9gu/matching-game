@@ -139,15 +139,15 @@
 
         #gameBoard {
             display: grid;
-            grid-template-columns: repeat(4, 150px);
-            grid-template-rows: repeat(4, 150px);
+            grid-template-columns: repeat(4, 200px);
+            grid-template-rows: repeat(4, 120px);
             gap: 15px;
             margin: 20px auto;
         }
 
         .card {
-            width: 150px;
-            height: 150px;
+            width: 200px;
+            height: 120px;
             background: linear-gradient(135deg, #ffffff 0%, #f0f0f0 100%);
             border-radius: 20px;
             display: flex;
@@ -367,6 +367,99 @@
         .upload-btn:active {
             transform: translateY(0);
         }
+
+        #backToHomeBtn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 24px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #fff;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(245, 87, 108, 0.4);
+            transition: all 0.3s ease;
+            z-index: 100;
+            display: none;
+        }
+
+        #backToHomeBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(245, 87, 108, 0.6);
+        }
+
+        #backToHomeBtn:active {
+            transform: translateY(0);
+        }
+
+        #hintDialog {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.98);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            z-index: 300;
+            display: none;
+            text-align: center;
+        }
+
+        #hintDialog h3 {
+            font-size: 28px;
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        #hintDialog p {
+            font-size: 20px;
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        #hintDialog button {
+            padding: 12px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #fff;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            margin: 0 10px;
+            transition: all 0.3s ease;
+        }
+
+        #hintYesBtn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        #hintNoBtn {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        #hintDialog button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        @keyframes hintPulse {
+            0%, 100% { 
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.7);
+            }
+            50% { 
+                transform: scale(1.1);
+                box-shadow: 0 0 20px 10px rgba(102, 126, 234, 0);
+            }
+        }
+
+        .hint-card {
+            animation: hintPulse 1.5s ease-in-out infinite;
+        }
     </style>
 </head>
 <body>
@@ -383,6 +476,7 @@
         <div id="startScreen">
             <div class="title">🎮 单词连连看</div>
             <button class="button" onclick="game.startGame()">🚀 开始游戏</button>
+            <button class="button" onclick="game.exitGame()">🚪 结束游戏</button>
         </div>
 
         <!-- 游戏界面 -->
@@ -430,6 +524,17 @@
             <button id="useDefaultMusicBtn" class="upload-btn" style="display: none;">🎵 使用默认音乐</button>
         </div>
 
+        <!-- 返回主页按钮 -->
+        <button id="backToHomeBtn" onclick="game.backToStartFromGame()">🏠 返回主页</button>
+
+        <!-- 提示对话框 -->
+        <div id="hintDialog">
+            <h3>💡 需要提示吗？</h3>
+            <p>您已经1分钟没有操作了，需要帮助吗？</p>
+            <button id="hintYesBtn">是的，给我提示</button>
+            <button id="hintNoBtn">不需要，继续游戏</button>
+        </div>
+
         <!-- 加载提示 -->
         <div id="loading">
             <div class="spinner"></div>
@@ -438,8 +543,8 @@
     </div>
 
     <!-- 引入库 -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js" crossorigin="anonymous"></script>
     <script src="game.js"></script>
 </body>
 </html>
