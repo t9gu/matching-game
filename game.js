@@ -48,7 +48,6 @@ class MatchingGame {
     // ============================================
     init() {
         this.initAudio();
-        this.initMediaPipe();
         this.setupCanvas();
         this.setupMusicUpload();
         this.setupHintDialog();
@@ -1384,6 +1383,43 @@ class MatchingGame {
             [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
         }
         return newArray;
+    }
+
+    // ============================================
+    // 显示摄像头权限界面
+    // ============================================
+    showCameraPermission() {
+        document.getElementById('startScreen').classList.add('hidden');
+        document.getElementById('cameraPermissionScreen').classList.remove('hidden');
+        document.getElementById('gameScreen').classList.add('hidden');
+        document.getElementById('resultScreen').classList.add('hidden');
+    }
+
+    // ============================================
+    // 接受摄像头权限
+    // ============================================
+    acceptCameraPermission() {
+        document.getElementById('cameraPermissionScreen').classList.add('hidden');
+        
+        // 显示加载提示
+        const loading = document.getElementById('loading');
+        if (loading) {
+            loading.style.display = 'flex';
+        }
+        
+        // 初始化摄像头
+        this.initMediaPipe();
+        
+        // startGame会在initMediaPipe完成后自动调用
+        this.startGame();
+    }
+
+    // ============================================
+    // 拒绝摄像头权限
+    // ============================================
+    rejectCameraPermission() {
+        document.getElementById('cameraPermissionScreen').classList.add('hidden');
+        document.getElementById('startScreen').classList.remove('hidden');
     }
 
     // ============================================

@@ -475,8 +475,21 @@
         <!-- 开始界面 -->
         <div id="startScreen">
             <div class="title">🎮 单词连连看</div>
-            <button class="button" onclick="game.startGame()">🚀 开始游戏</button>
+            <button class="button" onclick="game.showCameraPermission()">🚀 开始游戏</button>
             <button class="button" onclick="game.exitGame()">🚪 结束游戏</button>
+        </div>
+
+        <!-- 摄像头权限界面 -->
+        <div id="cameraPermissionScreen" class="hidden">
+            <div class="result-content">
+                <div class="result-title">📷 摄像头权限</div>
+                <p style="font-size: 24px; color: #666; margin: 30px 0;">
+                    本游戏需要使用摄像头进行手势识别<br>
+                    是否允许开启摄像头权限？
+                </p>
+                <button class="button" onclick="game.acceptCameraPermission()">✅ 允许</button>
+                <button class="button" onclick="game.rejectCameraPermission()">❌ 拒绝</button>
+            </div>
         </div>
 
         <!-- 游戏界面 -->
@@ -536,7 +549,7 @@
         </div>
 
         <!-- 加载提示 -->
-        <div id="loading">
+        <div id="loading" style="display: none;">
             <div class="spinner"></div>
             <div>正在加载摄像头和手势识别...</div>
         </div>
